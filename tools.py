@@ -29,14 +29,30 @@ def save_image(image, filepath):
     Image.fromarray(image).save(filepath)
 
 
-def display_image(image):
+def display_image(image, title=None, extend_range=False):
     """
     Display an image for visual inspection.
 
     Args:
         image (np.ndarray): Image data as a numpy array with dimensions (height, width, channels).
+        title (str, optional): Title to display above the image.
+        extend_range (bool): If True, normalize image values to [0, 255] range. 
+                           Useful for displaying images with values outside standard range.
+
+    Notes:
+        If extend_range is True, the function will linearly scale the image values
+        from [min, max] to [0, 255] to properly display images with out-of-range values.
     """
-    plt.imshow(image)
+    if extend_range:
+        # Normalize image to [0, 255] range
+        img_normalized = image - np.min(image)
+        img_normalized = (img_normalized * 255 / np.max(img_normalized)) if np.max(img_normalized) > 0 else img_normalized
+        plt.imshow(img_normalized.astype(np.uint8))
+    else:
+        plt.imshow(image)
+    
+    if title:
+        plt.title(title)
     plt.axis("off")
     plt.show()
 
@@ -144,7 +160,7 @@ def generate_gaussian_pyramid(image, levels, same_size=True, kernel_size=5):
             padded_image = np.zeros_like(pyramid[0])
             padded_image[::2, ::2] = image
             kernel = gaussian_kernel(kernel_size)
-            image = cv2.filter2D(padded_image, -1, kernel) * 4
+            image = cv2.filter2D(padded_image, -1, kernel) * 2
         pyramid.append(image)
     return pyramid
 
@@ -171,7 +187,7 @@ def generate_laplacian_pyramid(image, levels, same_size=True, kernel_size=5):
     # Build Laplacian pyramid
     for i in range(levels - 1):
         if same_size:
-            laplacian_pyr.append((gaussian_pyr[i] - gaussian_pyr[i + 1]) * 4)
+            laplacian_pyr.append((gaussian_pyr[i] - gaussian_pyr[i + 1]))
         else:
             expanded = expand(gaussian_pyr[i + 1], gaussian_pyr[i].shape, kernel_size)
             laplacian_pyr.append(gaussian_pyr[i] - expanded)
