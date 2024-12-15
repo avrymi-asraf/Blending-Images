@@ -1,7 +1,6 @@
 import numpy as np
 from PIL import Image
 import matplotlib.pyplot as plt
-from scipy.ndimage import gaussian_filter
 import cv2
 
 
@@ -36,72 +35,61 @@ def display_image(image, title=None, extend_range=False):
     Args:
         image (np.ndarray): Image data as a numpy array with dimensions (height, width, channels).
         title (str, optional): Title to display above the image.
-        extend_range (bool): If True, normalize image values to [0, 255] range. 
+        extend_range (bool): If True, check and normalize image values if they're outside [0, 255].
                            Useful for displaying images with values outside standard range.
 
     Notes:
-        If extend_range is True, the function will linearly scale the image values
-        from [min, max] to [0, 255] to properly display images with out-of-range values.
+        Normalization is only applied if extend_range=True AND image values are outside [0, 255].
     """
+    display_img = image.copy()
+
     if extend_range:
-        # Normalize image to [0, 255] range
-        img_normalized = image - np.min(image)
-        img_normalized = (img_normalized * 255 / np.max(img_normalized)) if np.max(img_normalized) > 0 else img_normalized
-        plt.imshow(img_normalized.astype(np.uint8))
-    else:
-        plt.imshow(image)
-    
+        # Check if values are outside standard image range
+        if np.min(image) < 0 or np.max(image) > 255:
+            # Normalize image to [0, 255] range
+            display_img = image - np.min(image)
+            if np.max(display_img) > 0:
+                display_img = display_img * 255 / np.max(display_img)
+    if display_img.dtype == np.float64 and np.max(display_img) > 1:
+        display_img = display_img.astype(np.uint8)
+    plt.imshow(display_img)
     if title:
         plt.title(title)
     plt.axis("off")
     plt.show()
 
 
-def gaussian_blur(image, sigma=1):
-    """
-    Apply Gaussian blur to an image.
-
-    Args:
-        image (np.ndarray): Input image as a numpy array with dimensions (height, width, channels).
-        sigma (float): Standard deviation for Gaussian kernel.
-
-    Returns:
-        np.ndarray: Blurred image with dimensions (height, width, channels).
-    """
-    return gaussian_filter(image, sigma=(sigma, sigma, 0))
-
-
 def gaussian_kernel(size=5):
     """
     Create a 2D Gaussian kernel using Pascal's triangle coefficients.
-    
+
     Args:
         size (int): Size of the kernel. Must be odd and >= 1.
-        
+
     Returns:
         np.ndarray: 2D Gaussian kernel with dimensions (size, size).
-        
+
     Raises:
         ValueError: If size is even or less than 1.
     """
     if size < 1 or size % 2 == 0:
         raise ValueError("Kernel size must be odd and >= 1")
-    
+
     # Generate Pascal's triangle row
     def pascal_row(n):
         row = [1]
         for k in range(n):
             row.append(row[k] * (n - k) // (k + 1))
         return np.array(row)
-    
+
     # Get the middle row of Pascal's triangle
     n = (size - 1) // 2
     kernel_1d = pascal_row(2 * n)
-    
+
     # Normalize and create 2D kernel
     kernel_1d = kernel_1d / np.sum(kernel_1d)
     kernel_2d = np.outer(kernel_1d, kernel_1d)
-    
+
     return kernel_2d
 
 
@@ -154,13 +142,9 @@ def generate_gaussian_pyramid(image, levels, same_size=True, kernel_size=5):
     """
     pyramid = [image]
     for _ in range(1, levels):
-        image = gaussian_blur(image, sigma=2)
-        image = image[::2, ::2]
+        image = reduce(pyramid[-1], kernel_size)
         if same_size:
-            padded_image = np.zeros_like(pyramid[0])
-            padded_image[::2, ::2] = image
-            kernel = gaussian_kernel(kernel_size)
-            image = cv2.filter2D(padded_image, -1, kernel) * 2
+            image = expand(image, pyramid[0].shape, kernel_size)
         pyramid.append(image)
     return pyramid
 
