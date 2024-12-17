@@ -3,19 +3,60 @@ from PIL import Image
 import matplotlib.pyplot as plt
 import cv2
 
+def image_as_rgb(image):
+    """
+    Convert any image to RGB format in range [0, 255] as uint8.
+    
+    Args:
+        image (np.ndarray): Input image with dimensions:
+            - (height, width) for grayscale
+            - (height, width, 1) for single channel
+            - (height, width, 3) for RGB
+            - (height, width, 4) for RGBA
+            Values can be in any range and any numeric dtype
+    
+    Returns:
+        np.ndarray: RGB image with dimensions (height, width, 3) in range [0, 255] as uint8
+        
+    Raises:
+        ValueError: If image has unexpected number of channels
+    """
+    # Handle different channel configurations
+    if len(image.shape) == 2:  # Grayscale
+        rgb_image = np.stack([image] * 3, axis=-1)
+    elif image.shape[2] == 4:  # RGBA
+        rgb_image = image[:, :, :3]
+    elif image.shape[2] == 1:  # Single channel
+        rgb_image = np.concatenate([image] * 3, axis=2)
+    elif image.shape[2] == 3:  # Already RGB
+        rgb_image = image
+    else:
+        raise ValueError(f"Unexpected number of channels: {image.shape[2]}")
+
+    # Handle different value ranges
+    if rgb_image.dtype != np.uint8:
+        if np.min(rgb_image) < 0 or np.max(rgb_image) > 255:
+            rgb_image = rgb_image - np.min(rgb_image)
+            if np.max(rgb_image) > 0:
+                rgb_image = rgb_image * 255 / np.max(rgb_image)
+        if rgb_image.dtype != np.uint8:
+            rgb_image = rgb_image.astype(np.uint8)
+    
+    return rgb_image
+
 
 def load_image(filepath):
     """
-    Load an image from disk into a numpy array.
+    Load an image from disk into a numpy array in RGB format.
 
     Args:
         filepath (str): Path to the image file.
 
     Returns:
-        np.ndarray: Image as a numpy array with dimensions (height, width, channels).
+        np.ndarray: Image as a numpy array with dimensions (height, width, 3) in RGB format.
     """
-    return np.array(Image.open(filepath))
-
+    img = np.array(Image.open(filepath).convert('RGB'))
+    return image_as_rgb(img)
 
 def save_image(image, filepath):
     """
@@ -35,23 +76,9 @@ def display_image(image, title=None, extend_range=False):
     Args:
         image (np.ndarray): Image data as a numpy array with dimensions (height, width, channels).
         title (str, optional): Title to display above the image.
-        extend_range (bool): If True, check and normalize image values if they're outside [0, 255].
-                           Useful for displaying images with values outside standard range.
-
-    Notes:
-        Normalization is only applied if extend_range=True AND image values are outside [0, 255].
+        extend_range (bool): Deprecated parameter, kept for backward compatibility.
     """
-    display_img = image.copy()
-
-    if extend_range:
-        # Check if values are outside standard image range
-        if np.min(image) < 0 or np.max(image) > 255:
-            # Normalize image to [0, 255] range
-            display_img = image - np.min(image)
-            if np.max(display_img) > 0:
-                display_img = display_img * 255 / np.max(display_img)
-    if display_img.dtype == np.float64 and np.max(display_img) > 1:
-        display_img = display_img.astype(np.uint8)
+    display_img = image_as_rgb(image)
     plt.imshow(display_img)
     if title:
         plt.title(title)
@@ -179,3 +206,37 @@ def generate_laplacian_pyramid(image, levels, same_size=True, kernel_size=5):
     laplacian_pyr.append(gaussian_pyr[-1])
 
     return laplacian_pyr
+
+
+def reconstruct_image(pyramid, kernel_size=5):
+    """
+    Reconstruct an image from its Laplacian pyramid.
+    
+    Args:
+        pyramid (list): List of numpy arrays representing the Laplacian pyramid.
+            Each array has dimensions (height, width, channels) where:
+            - height and width may vary by level if pyramid was not created with same_size=True
+            - channels is typically 3 for RGB images
+        kernel_size (int): Size of the Gaussian kernel used for expansion. Must be odd and >= 1.
+    
+    Returns:
+        np.ndarray: Reconstructed image with dimensions (height, width, channels) matching
+                   the dimensions of the first level of the pyramid.
+    
+    Raises:
+        ValueError: If pyramid is empty or kernel_size is invalid
+    """
+    if not pyramid:
+        raise ValueError("Pyramid cannot be empty")
+    
+    # Start with the smallest level (Gaussian residual)
+    reconstructed = pyramid[-1].copy()
+    
+    # Work up the pyramid, expanding and adding each level
+    for level in reversed(pyramid[:-1]):
+        # Expand the current reconstruction to match the size of the next level
+        reconstructed = expand(reconstructed, level.shape, kernel_size)
+        # Add the Laplacian detail from this level
+        reconstructed = reconstructed + level
+        
+    return reconstructed

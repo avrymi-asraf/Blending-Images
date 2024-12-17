@@ -1,0 +1,4 @@
+PIL
+numpy
+matplotlib
+cv2
